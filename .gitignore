@@ -1,0 +1,19 @@
+# Secrets — never commit these
+.env
+backend/src/main/resources/application-local.properties
+
+# Backend (Maven)
+backend/target/
+*.class
+
+# Frontend (Node/Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+
+# OS / editor cruft
+.DS_Store
+*.log
+.idea/
+.vscode/
