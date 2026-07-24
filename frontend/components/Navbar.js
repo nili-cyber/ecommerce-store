@@ -17,7 +17,7 @@ export default function Navbar() {
     <nav className="bg-white shadow-sm sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
         <Link href="/" className="text-xl font-bold text-indigo-600">
-          ShopSphere
+          Fasho
         </Link>
         <div className="flex items-center gap-4 text-sm">
           <Link href="/" className="text-gray-600 hover:text-indigo-600">Products</Link>
