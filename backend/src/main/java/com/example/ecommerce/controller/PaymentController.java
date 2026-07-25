@@ -89,17 +89,30 @@ public class PaymentController {
      * recording prices from the DB, and returns the Checkout URL for the
      * frontend to redirect to. Stripe Checkout automatically offers Apple
      * Pay / Google Pay on top of "card" for eligible devices. Cash App Pay
-     * is requested as its own payment method type when the client asks for
-     * it — Cash App Pay must also be turned on in the Stripe Dashboard
-     * (Settings → Payment methods) and only supports USD / US accounts.
+     * and ACH bank transfer (checking/savings accounts) are requested as
+     * their own payment method types when the client asks for them — each
+     * must also be turned on in the Stripe Dashboard (Settings → Payment
+     * methods). Cash App Pay and ACH both only support USD / US accounts.
      */
     @PostMapping("/create-checkout-session")
     public ResponseEntity<?> createCheckoutSession(@Valid @RequestBody CheckoutRequest request,
                                                     Authentication authentication) {
         User user = currentUser(authentication);
 
-        boolean isCashApp = "cashapp".equalsIgnoreCase(request.getPaymentMethodType());
-        Order.PaymentMethod paymentMethod = isCashApp ? Order.PaymentMethod.CASH_APP : Order.PaymentMethod.CARD;
+        String requestedType = request.getPaymentMethodType();
+        Order.PaymentMethod paymentMethod;
+        SessionCreateParams.PaymentMethodType stripeMethodType;
+
+        if ("cashapp".equalsIgnoreCase(requestedType)) {
+            paymentMethod = Order.PaymentMethod.CASH_APP;
+            stripeMethodType = SessionCreateParams.PaymentMethodType.CASHAPP;
+        } else if ("ach".equalsIgnoreCase(requestedType)) {
+            paymentMethod = Order.PaymentMethod.ACH_BANK_TRANSFER;
+            stripeMethodType = SessionCreateParams.PaymentMethodType.US_BANK_ACCOUNT;
+        } else {
+            paymentMethod = Order.PaymentMethod.CARD;
+            stripeMethodType = SessionCreateParams.PaymentMethodType.CARD;
+        }
 
         Order order;
         try {
@@ -131,15 +144,10 @@ public class PaymentController {
             SessionCreateParams.Builder paramsBuilder = SessionCreateParams.builder()
                     .setMode(SessionCreateParams.Mode.PAYMENT)
                     .addAllLineItem(lineItems)
+                    .addPaymentMethodType(stripeMethodType)
                     .setSuccessUrl(frontendUrl + "/checkout/success?session_id={CHECKOUT_SESSION_ID}")
                     .setCancelUrl(frontendUrl + "/checkout/cancel")
                     .setCustomerEmail(user.getEmail());
-
-            if (isCashApp) {
-                paramsBuilder.addPaymentMethodType(SessionCreateParams.PaymentMethodType.CASHAPP);
-            } else {
-                paramsBuilder.addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD);
-            }
 
             Session session = Session.create(paramsBuilder.build());
 
@@ -154,8 +162,15 @@ public class PaymentController {
     }
 
     /**
-     * Stripe calls this directly (not the browser) when a payment completes.
-     * This is the source of truth for "did the customer actually pay".
+     * Stripe calls this directly (not the browser) when payment events
+     * happen. This is the source of truth for "did the customer actually
+     * pay". Card and Cash App Pay confirm instantly, so
+     * checkout.session.completed with payment_status=paid is the final
+     * word. ACH (bank transfers) is a *delayed* payment method — the
+     * customer approving it just starts a 1-4 business day clearing
+     * process, so completed fires with payment_status=unpaid and we must
+     * wait for a separate async_payment_succeeded/failed event before
+     * treating the order as paid.
      */
     @PostMapping("/webhook")
     public ResponseEntity<String> handleStripeWebhook(@RequestBody String payload,
@@ -167,16 +182,33 @@ public class PaymentController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid signature");
         }
 
-        if ("checkout.session.completed".equals(event.getType())) {
+        String type = event.getType();
+
+        if ("checkout.session.completed".equals(type) || "checkout.session.async_payment_succeeded".equals(type)) {
+            Session session = (Session) event.getDataObjectDeserializer().getObject().orElse(null);
+            if (session != null && "paid".equals(session.getPaymentStatus())) {
+                orderRepository.findByStripeSessionId(session.getId()).ifPresent(order -> {
+                    if (order.getStatus() != Order.Status.PAID) {
+                        order.setStatus(Order.Status.PAID);
+                        orderRepository.save(order);
+                        decrementStock(order);
+                    }
+                });
+            }
+            // If payment_status is "unpaid" here, this is an async method
+            // (like ACH) still clearing — leave the order PENDING and wait
+            // for async_payment_succeeded (handled by this same branch) or
+            // async_payment_failed (handled below).
+        } else if ("checkout.session.async_payment_failed".equals(type)) {
             Session session = (Session) event.getDataObjectDeserializer().getObject().orElse(null);
             if (session != null) {
                 orderRepository.findByStripeSessionId(session.getId()).ifPresent(order -> {
-                    order.setStatus(Order.Status.PAID);
+                    order.setStatus(Order.Status.CANCELED);
                     orderRepository.save(order);
-                    decrementStock(order);
                 });
             }
         }
+
         return ResponseEntity.ok("received");
     }
 

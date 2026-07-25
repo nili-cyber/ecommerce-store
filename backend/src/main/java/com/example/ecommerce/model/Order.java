@@ -49,7 +49,7 @@ public class Order {
     }
 
     public enum PaymentMethod {
-        CARD, CASH_APP, PAYPAL, CASH_ON_DELIVERY
+        CARD, CASH_APP, ACH_BANK_TRANSFER, PAYPAL, CASH_ON_DELIVERY
     }
 
     public Order() {}

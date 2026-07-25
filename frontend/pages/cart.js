@@ -8,6 +8,7 @@ import { createCheckoutSession, createPayPalOrder, cashCheckout } from '../lib/a
 const METHODS = [
   { id: 'card', label: 'Credit / Debit Card', hint: 'Also supports Apple Pay & Google Pay' },
   { id: 'cashapp', label: 'Cash App Pay', hint: 'Pay with your Cash App balance or linked card' },
+  { id: 'ach', label: 'Bank Account (ACH)', hint: 'Pay directly from checking or savings — takes 1-4 business days to clear' },
   { id: 'paypal', label: 'PayPal', hint: 'Pay with your PayPal account or a card via PayPal' },
   { id: 'cash', label: 'Cash on Delivery', hint: 'Pay in person when your order arrives' },
 ];
@@ -32,7 +33,7 @@ export default function Cart() {
     setLoading(true);
 
     try {
-      if (method === 'card' || method === 'cashapp') {
+      if (method === 'card' || method === 'cashapp' || method === 'ach') {
         const res = await createCheckoutSession(cartLines(), method);
         window.location.href = res.data.checkoutUrl;
         return; // page is navigating away

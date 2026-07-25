@@ -123,6 +123,28 @@ order is placed immediately with no redirect → redirected back to
 call — not the redirect itself — are what actually mark an order `PAID`,
 so it's safe even if the customer closes the tab right after paying.
 
+### ACH bank transfer (checking / savings accounts)
+
+Also rides on the same Stripe integration as cards and Cash App Pay:
+1. Stripe Dashboard → **Settings → Payment methods** → turn on **ACH Direct
+   Debit** (sometimes labeled "US bank account").
+2. That's it — picking "Bank Account (ACH)" in the cart requests
+   `paymentMethodType: "ach"`, which asks Stripe for a bank-only Checkout
+   page. The customer connects their bank (instant verification) or enters
+   routing/account numbers manually (slower, verified via two small test
+   deposits).
+3. **Important difference from cards**: ACH is not instant. A customer
+   approving payment starts a 1–4 business day clearing process — the order
+   stays `PENDING` until Stripe confirms the funds actually arrived (a
+   separate `checkout.session.async_payment_succeeded` webhook event, not
+   the initial `checkout.session.completed` one). This is handled correctly
+   in `PaymentController`, but worth knowing if you're wondering why an ACH
+   order doesn't flip to `PAID` immediately in testing — <a
+   href="https://docs.stripe.com/payments/ach-direct-debit#testing">Stripe's
+   test bank accounts</a> let you simulate both instant-verification and
+   microdeposit flows without actually waiting days.
+4. US-only — same constraint as Cash App Pay.
+
 ### Cash App Pay
 
 Cash App Pay rides on the same Stripe integration as cards — no separate
